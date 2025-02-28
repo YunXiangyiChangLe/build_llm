@@ -22,13 +22,13 @@ class GPTModel(nn.Module):
         x = tok_embeds + pos_embeds
         x = self.drop_emb(x)
         x = self.trf_blocks(x)
+        x = self.final_norm(x)
         logits = self.out_head(x)
         return logits
 
 
-
 class LayerNorm(nn.Module):
-    def __init__(self,emb_dim, eps=1e-5):
+    def __init__(self, emb_dim, eps=1e-5):
         super().__init__()
         self.eps = eps
         self.scale = nn.Parameter(torch.ones(emb_dim))
@@ -89,3 +89,15 @@ class TransformerBlocker(nn.Module):
         x = self.drop_shortcut(x)
         x = x + shortcut
         return x
+
+
+def generate_text(model, idx, max_new_tokens, context_size):
+    for _ in range(max_new_tokens):
+        inx_cond = idx[:, -context_size:]
+        with torch.no_grad():
+            logits = model(inx_cond)
+        logits = logits[:, -1, :]
+        probas = torch.softmax(logits, dim=-1)
+        idx_next = torch.argmax(probas, dim=-1, keepdim=True)
+        idx = torch.cat((idx, idx_next), dim=1)
+    return idx
