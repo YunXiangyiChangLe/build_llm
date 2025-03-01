@@ -8,6 +8,7 @@ import tiktoken
 import pickle
 from dataset import create_dataloader
 from gpt_model import GPTModel, FeedForward, TransformerBlocker, generate_text
+import matplotlib.pyplot as plt
 
 GPT_CONFIG_124M = {
     "vocab_size": 50257,
@@ -49,6 +50,7 @@ val_loader = create_dataloader(
     drop_last=False,
     num_workers=0
 )
+
 
 def calc_loss_batch(input_batch, target_batch, model, device):
     input_batch, target_batch = input_batch.to(device), target_batch.to(device)
@@ -120,18 +122,39 @@ def text_to_token_ids(text, tokenizer):
     encoded_tensor = torch.tensor(encoded).unsqueeze(0)
     return encoded_tensor
 
+
 def generate_and_print_sample(model, tokenizer, device, start_context):
     model.eval()
     context_size = model.pos_emb.weight.shape[0]
     encoded = text_to_token_ids(start_context, tokenizer).to(device)
     with torch.no_grad():
-        tokens_ids = generate_text(model, encoded, 100, context_size)
+        tokens_ids = generate_text(model, encoded, 50, context_size)
         decode_text = token_ids_to_text(tokens_ids, tokenizer)
         print(decode_text.replace("\n", " "))
     model.train()
 
 
-torch.manual_seed(123)
+# def plot_losses(epoches_seen, tokens_seen, train_losses, val_losses):
+#     # 确保数据在 CPU 上并转换为 NumPy
+#     epoches_seen = epochs_tensor.detach().cpu().numpy()
+#     train_losses = [loss.detach().cpu().numpy() for loss in train_losses]
+#     val_losses = [loss.detach().cpu().numpy() for loss in val_losses]
+#     tokens_seen = [t.detach().cpu().numpy() for t in tokens_seen]
+#
+#     fig, ax1 = plt.subplots(figsize=(5, 3))
+#     ax1.plot(epoches_seen, train_losses, label="train loss")
+#     ax1.plot(epoches_seen, val_losses, linestyle="-.", label="val loss")
+#     ax1.set_xlabel("epochs")
+#     ax1.set_ylabel("loss")
+#     ax1.legend(loc="upper right")
+#     ax2 = ax1.twiny()
+#     ax2.plot(tokens_seen, train_losses, alpha=0)
+#     ax2.set_xlabel("tokens seen")
+#     fig.tight_layout()
+#     plt.show()
+
+
+# torch.manual_seed(123)
 model = GPTModel(GPT_CONFIG_124M)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
@@ -143,3 +166,13 @@ train_losses, val_losses, tokens_seen = train_model_simple(
     device=device, num_epoches=num_epochs, eval_freq=5, eval_iter=1, start_context="Every effort moves you",
     tokenizer=tokenizer
 )
+
+# epochs_tensor=torch.linspace(0,num_epochs,len(train_losses))
+# plot_losses(epochs_tensor,tokens_seen,train_losses,val_losses)
+
+model.eval()
+token_ids = generate_text(
+    model=model, idx=text_to_token_ids("Every effort moves you", tokenizer=tokenizer).to(device),
+    max_new_tokens=25, context_size=GPT_CONFIG_124M["context_length"]
+)
+print(token_ids_to_text(token_ids, tokenizer))

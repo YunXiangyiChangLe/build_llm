@@ -91,13 +91,29 @@ class TransformerBlocker(nn.Module):
         return x
 
 
-def generate_text(model, idx, max_new_tokens, context_size):
+def generate_text(model, idx, max_new_tokens, context_size,
+                  temperature=1.0, top_k=None, eos_id=None):
     for _ in range(max_new_tokens):
         inx_cond = idx[:, -context_size:]
         with torch.no_grad():
             logits = model(inx_cond)
         logits = logits[:, -1, :]
-        probas = torch.softmax(logits, dim=-1)
-        idx_next = torch.argmax(probas, dim=-1, keepdim=True)
+        if top_k is not None:
+            top_logits, _ = torch.topk(logits, top_k, dim=-1)
+            min_val = top_logits[:, -1]
+            logits = torch.where(
+                logits < min_val,
+                torch.tensor(float('-inf')).to(logits.device),
+                logits
+            )
+        if temperature > 0.0:
+            logits = logits / temperature
+            probas = torch.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probas, num_samples=1)
+        else :
+            probas = torch.softmax(logits, dim=-1)
+            idx_next = torch.argmax(probas, dim=-1, keepdim=True)
+        if idx_next==eos_id:
+            break
         idx = torch.cat((idx, idx_next), dim=1)
     return idx
