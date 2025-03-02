@@ -10,14 +10,13 @@ from dataset import SpamDataset
 import pickle
 import json
 import os
+import time
 
 
 def calc_loss_batch(input_batch, target_batch, model, device):
     input_batch, target_batch = input_batch.to(device), target_batch.to(device)
     logits = model(input_batch)[:, -1, :]
     loss = torch.nn.functional.cross_entropy(logits, target_batch)
-    print(logits)
-    print(target_batch)
     return loss
 
 
@@ -38,16 +37,49 @@ def calc_loss_loader(data_loader, model, device, num_batchs=None):
     return total_loss / num_batchs
 
 
+def eval_model(model, train_loader, val_loader, device, eval_iter):
+    model.eval()
+    with torch.no_grad():
+        train_loss = calc_loss_loader(train_loader, model, device, eval_iter)
+        val_loss = calc_loss_loader(val_loader, model, device, eval_iter)
+    model.train()
+    return train_loss, val_loss
+
+
+def train_classifier_simple(model, train_loader, val_loader, optimizer, device,
+                            num_epochs, eval_freq, eval_iter, tokenizer):
+    train_losses, val_losses, train_accs, val_accs = [], [], [], []
+    examples_seen, global_step = 0, -1
+    for epoch in range(num_epochs):
+        model.train()
+        for input_batch, target_batch in train_loader:
+            optimizer.zero_grad()
+            loss = calc_loss_batch(input_batch, target_batch, model, device)
+            loss.backward()
+            optimizer.step()
+            examples_seen += input_batch.shape[0]
+            global_step += 1
+            if global_step % eval_freq == 0:
+                train_loss, val_loss = eval_model(
+                    model, train_loader, val_loader, device, eval_iter
+                )
+                train_losses.append(train_loss)
+                val_losses.append(val_loss)
+                print(f"ep{epoch + 1} (step{global_step:06d}): train loss {train_loss:.3f}"
+                      f",val loss {val_loss:.3f}")
+
+        train_acc = calc_accuracy_loader(train_loader, model, device)
+        val_acc = calc_accuracy_loader(val_loader, model, device)
+        print(f"In epoch {epoch} train acc {train_acc}")
+        print(f"In epoch {epoch} val acc {train_acc}")
+        train_accs.append(train_acc)
+        val_accs.append(val_acc)
+    return train_losses, val_losses, train_accs, val_accs, examples_seen
+
+
 data_path = "./dataset/SMSSpamCollection"
 df = pd.read_csv(data_path, sep="\t", header=None, names=["Label", "Text"])
 df = create_balanced_dataset(df)
-# print(df["Label"].value_counts())
-# df["Label"] = df["Label"].map({"ham": 0, "spam": 1})
-# print(df)
-# train_df, val_df, test_df = random_spilt(df, 0.7, 0.1)
-# train_df.to_csv("./dataset/train.csv", index=None)
-# val_df.to_csv("./dataset/val.csv", index=None)
-# test_df.to_csv("./dataset/test.csv", index=None)
 
 load_path = "./gpt2/gpt2_encoder.pkl"
 with open(load_path, "rb") as f:
@@ -80,7 +112,7 @@ GPT_CONFIG_124M = {
     "emb_dim": 768,
     "n_heads": 12,
     "n_layers": 12,
-    "drop_rate": 0.1,
+    "drop_rate": 0.0,
     "qkv_bias": False
 }
 
@@ -107,16 +139,6 @@ tf_ckpt_path = tf.train.latest_checkpoint(model_dir)
 settings = json.load(open(os.path.join(model_dir, "hparams.json")))
 params = load_gpt2_params_from_tf_ckpt(tf_ckpt_path, settings)
 load_weights_to_gpt(gpt, params)
-
-# text_2 = (
-#     "Is the following text 'spam'? Answer with 'yes' or 'no': "
-#     "'You are a winner you have been specially selected to receive $1000 cash or a $2000 award"
-# )
-# token_ids = generate_text(
-#     model=gpt, idx=text_to_token_ids(text_2, tokenizer=tokenizer).to(device),
-#     max_new_tokens=23, context_size=GPT_CONFIG_124M["context_length"]
-# )
-# print(token_ids_to_text(token_ids, tokenizer))
 
 num_classes = 2
 for param in gpt.parameters():
@@ -149,3 +171,14 @@ print(f"test acc {test_acc * 100:.2f}%")
 print(f"train loss {train_loss :.3f}")
 print(f"val loss {val_loss :.3f}")
 print(f"test loss {test_loss :.3f}")
+
+torch.manual_seed(123)
+optimizer = torch.optim.AdamW(gpt.parameters(), lr=5e-5, weight_decay=0.1)
+num_epochs = 5
+start_time = time.time()
+train_losses, val_losses, train_accs, val_accs, examples_seen = train_classifier_simple(
+    model=gpt, train_loader=train_loader, val_loader=val_loader, optimizer=optimizer,
+    device=device, num_epochs=num_epochs, eval_freq=50, eval_iter=5, tokenizer=tokenizer
+)
+end_time = time.time()
+print(f"all time {end_time - start_time}second")
