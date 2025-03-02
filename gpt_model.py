@@ -110,10 +110,10 @@ def generate_text(model, idx, max_new_tokens, context_size,
             logits = logits / temperature
             probas = torch.softmax(logits, dim=-1)
             idx_next = torch.multinomial(probas, num_samples=1)
-        else :
+        else:
             probas = torch.softmax(logits, dim=-1)
             idx_next = torch.argmax(probas, dim=-1, keepdim=True)
-        if idx_next==eos_id:
+        if idx_next == eos_id:
             break
         idx = torch.cat((idx, idx_next), dim=1)
     return idx
