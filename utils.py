@@ -1,4 +1,6 @@
 import re
+
+import pandas as pd
 import tensorflow as tf
 import pickle
 
@@ -138,3 +140,20 @@ def load_weights_to_gpt(gpt, params):
     gpt.out_head.weight = assign(
         gpt.out_head.weight, params["wte"]
     )
+
+
+def create_balanced_dataset(df):
+    num_spam = df[df["Label"] == "spam"].shape[0]
+    ham_subset = df[df["Label"] == "ham"].sample(num_spam, random_state=123)
+    balanced_df = pd.concat([ham_subset, df[df["Label"] == "spam"]])
+    return balanced_df
+
+
+def random_spilt(df, train_frac, val_frac):
+    df = df.sample(frac=1, random_state=123).reset_index(drop=True)
+    train_end = int(len(df) * train_frac)
+    val_end = train_end + int(len(df) * val_frac)
+    train_df = df[:train_end]
+    val_df = df[train_end:val_end]
+    test_df = df[val_end:]
+    return train_df, val_df, test_df
